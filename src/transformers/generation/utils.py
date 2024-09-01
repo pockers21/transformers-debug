@@ -2304,8 +2304,10 @@ class GenerationMixin:
         # keep track of which sequences are already finished
         batch_size = input_ids.shape[0]
         unfinished_sequences = torch.ones(batch_size, dtype=torch.long, device=input_ids.device)
-        model_kwargs = self._get_initial_cache_position(input_ids, model_kwargs)
+        logger.info(f'input_ids:{input_ids}')
 
+        model_kwargs = self._get_initial_cache_position(input_ids, model_kwargs)
+        logger.info(f'model_kwargs:{model_kwargs}')
         this_peer_finished = False
 
         # prepare layers for DoLa decoding
@@ -3930,7 +3932,9 @@ class GenerationMixin:
         # keep track of which sequences are already finished
         batch_size = input_ids.shape[0]
         unfinished_sequences = torch.ones(batch_size, dtype=torch.long, device=input_ids.device)
+        logger.info(f'input_ids:{input_ids}')
         model_kwargs = self._get_initial_cache_position(input_ids, model_kwargs)
+        logger.info(f'model_kwargs:{model_kwargs}')
 
         # This is needed if return_dict_in_generate is True
         start_from_empty_dynamic_cache = False
@@ -3951,7 +3955,8 @@ class GenerationMixin:
             candidate_input_ids = candidate_input_ids.to(self.device)
             if candidate_logits is not None:
                 candidate_logits = candidate_logits.to(self.device)
-
+            logger.info(f'candidate_input_ids:{candidate_input_ids}')
+            logger.info(f'candidate_logits:{candidate_logits.shape}')
             candidate_length = candidate_input_ids.shape[1] - input_ids.shape[1]
             is_done_candidate = stopping_criteria(candidate_input_ids, None)
 
@@ -3964,7 +3969,10 @@ class GenerationMixin:
             candidate_kwargs = _prepare_attention_mask(
                 candidate_kwargs, candidate_input_ids.shape[1], self.config.is_encoder_decoder
             )
+
             candidate_kwargs = _prepare_token_type_ids(candidate_kwargs, candidate_input_ids.shape[1])
+            print(f'candidate_kwargs:{candidate_kwargs}')
+
             if "cache_position" in candidate_kwargs:
                 candidate_kwargs["cache_position"] = torch.cat(
                     (
@@ -3984,9 +3992,14 @@ class GenerationMixin:
             model_inputs.update({"output_hidden_states": output_hidden_states} if output_hidden_states else {})
 
             outputs = self(**model_inputs)
+            logger.info(f'model_inputs: {model_inputs}')
 
             # 2.3. Process the new logits
             new_logits = outputs.logits[:, -candidate_length - 1 :]  # excludes the input prompt if present
+            logger.info(f'outputs.logits shape : {outputs.logits.shape}')
+            logger.info(f'candidate_length : {candidate_length}')
+            logger.info(f'new_logits shape : {new_logits.shape}')
+
             next_token_logits = new_logits.clone()
             if len(logits_processor) > 0:
                 for i in range(candidate_length + 1):
@@ -4035,7 +4048,8 @@ class GenerationMixin:
             if streamer is not None:
                 streamer.put(valid_tokens.cpu())
             new_cur_len = input_ids.shape[-1]
-
+            logger.info(f'new_cur_len:{new_cur_len}')
+            raise
             # 4.2. Discard past key values relative to unused assistant tokens
             new_cache_size = new_cur_len - 1
             outputs.past_key_values = _crop_past_key_values(self, outputs.past_key_values, new_cache_size)
@@ -4154,10 +4168,18 @@ def _speculative_sampling(
     # Gets the probabilities from the logits. q_i and p_i denote the assistant and model probabilities of the tokens
     # selected by the assistant, respectively.
     q = candidate_logits.softmax(dim=-1)
+    logger.info(f'candidate_logits shape:{candidate_logits.shape}')
+    logger.info(f'q shape:{q.shape}')
+    logger.info(f'q[:, torch.arange(candidate_length), new_candidate_input_ids] shape:{q[:, torch.arange(candidate_length), new_candidate_input_ids].shape}')
     q_i = q[:, torch.arange(candidate_length), new_candidate_input_ids].squeeze(0, 1)
+    logger.info(f'q_i shape:{q_i.shape}')
     p = new_logits.softmax(dim=-1)
     p_i = p[:, torch.arange(candidate_length), new_candidate_input_ids].squeeze(0, 1)
+    logger.info(f'p_i shape:{p_i.shape}')
+    logger.info(f'new_logits shape:{new_logits.shape}')
+    logger.info(f'p shape:{p.shape}')
     probability_ratio = p_i / q_i
+
 
     # When probability_ratio > 1 (i.e. q_i(x) < p_i(x), or "assistant probability of the candidate token is smaller
     # than the model probability for the same token"), keep the token. Otherwise reject with p = 1 - probability_ratio
@@ -4165,6 +4187,8 @@ def _speculative_sampling(
     r_i = torch.rand_like(probability_ratio)
     is_accepted = r_i <= probability_ratio
     n_matches = ((~is_accepted).cumsum(dim=-1) < 1).sum()  # this is `n` in algorithm 1
+    logger.info(f'candidate_length:{candidate_length}')
+    logger.info(f'n_matches:{n_matches}')
 
     # Ensure we don't generate beyond max_len or an EOS token (not in algorithm 1, but needed for correct behavior)
     if is_done_candidate and n_matches == candidate_length:

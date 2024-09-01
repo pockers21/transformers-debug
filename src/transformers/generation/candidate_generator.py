@@ -212,15 +212,17 @@ class AssistedCandidateGenerator(CandidateGenerator):
             "generation_config": self.generation_config,
             "logits_processor": self.logits_processor,
         }
-
         assistant_output = self.assistant_model.generate(**assistant_generation_kwargs, **self.assistant_kwargs)
 
         # 3. Update variables for the next round of candidate generation
         self.assistant_kwargs["past_key_values"] = assistant_output.past_key_values
-
+        print(f'len:{len(assistant_output.scores)} assistant_output.scores shape:{assistant_output.scores[0].shape}')
         # 4. Prepare variables for output
         candidate_logits = torch.stack(assistant_output.scores, dim=1)
+        print(f'candidate_logits shape:{candidate_logits.shape}')
+        print(f'assistant_output.sequences shape:{assistant_output.sequences.shape}')
         candidate_ids = assistant_output.sequences
+
         return candidate_ids, candidate_logits
 
     def update_candidate_strategy(self, input_ids: torch.LongTensor, scores: torch.FloatTensor, num_matches: int):

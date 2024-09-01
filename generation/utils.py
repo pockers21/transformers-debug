@@ -1685,7 +1685,7 @@ class GenerationMixin:
         )
         logger.info(f'generation_mode: {generation_mode}')
         logger.info(f'stopping_criteria: {stopping_criteria}')
-
+        raise
         # 10. go into different generation modes
         if generation_mode == GenerationMode.ASSISTED_GENERATION:
             if generation_config.num_return_sequences > 1:
